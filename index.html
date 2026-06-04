@@ -1,0 +1,1903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Queue Call Log Analytics Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0d0f14;--surface:#13161e;--surface2:#1a1e29;--border:#252a38;
+    --accent:#00d4ff;--accent2:#7c5cfc;--warn:#ff6b35;--danger:#ff3b5c;
+    --success:#00c896;--text:#e8eaf2;--muted:#6b7394;
+    --font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace;
+  }
+  body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.5}
+
+  /* ── Upload ── */
+  #upload-screen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;position:relative;overflow:hidden}
+  #upload-screen::before{content:'';position:absolute;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,rgba(0,212,255,.05) 0%,transparent 70%);top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none}
+  .logo-mark{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--accent);text-transform:uppercase;margin-bottom:2rem;opacity:.8}
+  h1.hero{font-size:clamp(1.8rem,4vw,3.2rem);font-weight:300;letter-spacing:-.02em;text-align:center;line-height:1.15;margin-bottom:.5rem}
+  h1.hero span{color:var(--accent);font-weight:500}
+  .subtitle{color:var(--muted);text-align:center;margin-bottom:2.5rem;font-size:15px}
+
+  .drop-zone{width:100%;max-width:620px;border:1.5px dashed var(--border);border-radius:16px;padding:2.5rem 2rem;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;position:relative;background:var(--surface)}
+  .drop-zone:hover,.drop-zone.drag-over{border-color:var(--accent);background:rgba(0,212,255,.04)}
+  .drop-zone input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+  .drop-icon{font-size:2.5rem;margin-bottom:.8rem;opacity:.4}
+  .drop-zone p{color:var(--muted);margin-top:.4rem;font-size:13px}
+  .drop-zone strong{color:var(--text);font-weight:500}
+  .filetypes{display:flex;gap:8px;justify-content:center;margin-top:.8rem;flex-wrap:wrap}
+  .ft-badge{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;font-family:var(--mono);color:var(--muted)}
+
+  /* File queue */
+  #file-queue{width:100%;max-width:620px;margin-top:1.2rem;display:none}
+  .fq-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem}
+  .fq-title{font-size:12px;font-family:var(--mono);letter-spacing:.1em;color:var(--accent);text-transform:uppercase}
+  .btn-add-more{background:none;border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--font);transition:border-color .2s,color .2s;position:relative;overflow:hidden}
+  .btn-add-more:hover{border-color:var(--accent);color:var(--accent)}
+  .btn-add-more input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer}
+  .file-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:13px}
+  .file-item .fi-icon{font-size:1.1rem;flex-shrink:0}
+  .file-item .fi-name{flex:1;font-family:var(--mono);font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file-item .fi-rows{font-size:11px;color:var(--muted);flex-shrink:0}
+  .file-item .fi-status{font-size:10px;font-family:var(--mono);padding:2px 7px;border-radius:3px;flex-shrink:0}
+  .status-loading{background:rgba(0,212,255,.1);color:var(--accent)}
+  .status-ready{background:rgba(0,200,150,.1);color:var(--success)}
+  .status-error{background:rgba(255,59,92,.1);color:var(--danger)}
+  .fi-remove{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 4px;border-radius:3px;flex-shrink:0;line-height:1}
+  .fi-remove:hover{color:var(--danger)}
+
+  /* Progress */
+  #progress-wrap{width:100%;max-width:620px;margin-top:1rem;display:none}
+  #progress-bar-outer{background:var(--surface2);border-radius:4px;height:4px;overflow:hidden}
+  #progress-bar{height:100%;background:var(--accent);border-radius:4px;transition:width .3s;width:0%}
+  #progress-label{font-size:12px;font-family:var(--mono);color:var(--muted);margin-top:6px;text-align:center}
+
+  /* Col mapper */
+  .col-mapper{width:100%;max-width:620px;margin-top:1.5rem;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem;display:none}
+  .col-mapper h3{font-size:13px;font-family:var(--mono);color:var(--accent);letter-spacing:.1em;margin-bottom:.3rem}
+  .col-mapper .cm-sub{font-size:12px;color:var(--muted);margin-bottom:1rem}
+  .map-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;align-items:center}
+  .map-row label{font-size:12px;color:var(--muted)}
+  .map-row select{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px;font-family:var(--font);width:100%}
+  .btn-analyze{margin-top:1.5rem;width:100%;padding:14px;background:var(--accent);color:#000;font-weight:600;font-size:14px;font-family:var(--font);border:none;border-radius:8px;cursor:pointer;letter-spacing:.02em;transition:opacity .2s,transform .1s}
+  .btn-analyze:hover{opacity:.9}
+  .btn-analyze:active{transform:scale(.99)}
+  .sample-note{margin-top:.8rem;font-size:12px;color:var(--muted);text-align:center}
+
+  /* ── Dashboard ── */
+  #dashboard{display:none;padding:0 0 4rem}
+  .dash-header{padding:1.2rem 2rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg);z-index:100}
+  .dash-header .brand{font-family:var(--mono);font-size:13px;color:var(--accent);letter-spacing:.15em}
+  .dash-meta{font-size:11px;color:var(--muted);margin-top:2px}
+  .dash-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .btn-back{background:none;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--font);transition:border-color .2s,color .2s}
+  .btn-back:hover{border-color:var(--accent);color:var(--accent)}
+  .btn-export{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--font);transition:border-color .2s,color .2s,background .2s}
+  .btn-export:hover{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,.04)}
+  .btn-export:disabled{opacity:.55;cursor:wait}
+  .dash-body{padding:2rem;max-width:1400px;margin:0 auto}
+  .gran-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--font);transition:border-color .2s,color .2s,background .2s}
+  .gran-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .gran-btn.active{background:rgba(0,212,255,.12);border-color:var(--accent);color:var(--accent)}
+
+  /* Source badges */
+  .source-pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1.5rem}
+  .source-pill{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:11px;font-family:var(--mono);color:var(--muted)}
+  .source-pill span{color:var(--accent)}
+
+  /* Alerts */
+  .alerts-section{margin-bottom:1.5rem}
+  .alert-card{display:flex;align-items:flex-start;gap:12px;padding:11px 16px;border-radius:8px;margin-bottom:8px;font-size:13px}
+  .alert-card.danger{background:rgba(255,59,92,.08);border:1px solid rgba(255,59,92,.25)}
+  .alert-card.warn{background:rgba(255,107,53,.08);border:1px solid rgba(255,107,53,.25)}
+  .alert-card.info{background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.2)}
+  .alert-dot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0}
+  .danger .alert-dot{background:var(--danger)}
+  .warn .alert-dot{background:var(--warn)}
+  .info .alert-dot{background:var(--accent)}
+  .alert-card strong{display:block;margin-bottom:2px}
+  .danger strong{color:var(--danger)}
+  .warn strong{color:var(--warn)}
+  .info strong{color:var(--accent)}
+
+  /* KPIs */
+  .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px;margin-bottom:2rem}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.1rem}
+  .kpi-label{font-size:11px;font-family:var(--mono);letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+  .kpi-value{font-size:2rem;font-weight:500;line-height:1}
+  .kpi-sub{font-size:12px;color:var(--muted);margin-top:4px}
+  .kpi.danger-kpi .kpi-value{color:var(--danger)}
+  .kpi.warn-kpi .kpi-value{color:var(--warn)}
+  .kpi.success-kpi .kpi-value{color:var(--success)}
+  .kpi.accent-kpi .kpi-value{color:var(--accent)}
+
+  /* Charts */
+  .chart-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;margin-bottom:16px}
+  .chart-pair{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .chart-full{grid-column:1/-1}
+  .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.4rem;margin-bottom:16px}
+  .chart-card h2{font-size:12px;font-family:var(--mono);letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:1rem}
+  .chart-card h2 span{color:var(--accent)}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px;font-size:12px}
+  .legend-item{display:flex;align-items:center;gap:5px;color:var(--muted)}
+  .legend-swatch{width:10px;height:10px;border-radius:2px}
+  .donut-layout{display:grid;grid-template-columns:minmax(150px,1fr) minmax(150px,.8fr);gap:14px;align-items:center}
+  .donut-chart{position:relative;height:240px;min-width:0}
+  .count-legend{display:flex;flex-direction:column;gap:10px}
+  .count-row{display:grid;grid-template-columns:12px 1fr auto;gap:8px;align-items:center;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.02)}
+  .count-swatch{width:12px;height:12px;border-radius:3px}
+  .count-label{font-size:12px;color:var(--muted)}
+  .count-value{font-family:var(--mono);font-size:15px;color:var(--text)}
+  .count-percent{grid-column:2/-1;font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:-4px}
+  .rank-list{display:flex;flex-direction:column;gap:10px}
+  .rank-row{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.02)}
+  .rank-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+  .rank-name{font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rank-value{font-family:var(--mono);font-size:14px;color:var(--accent);white-space:nowrap}
+  .rank-track{height:8px;border-radius:999px;background:var(--surface2);overflow:hidden}
+  .rank-fill{height:100%;border-radius:999px;background:var(--accent)}
+  .rank-note{margin-top:6px;font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .rank-stack{height:100%;display:flex;border-radius:999px;overflow:hidden}
+  .rank-segment{height:100%;min-width:2px}
+  .rank-breakdown{display:flex;flex-wrap:wrap;gap:10px 14px;margin-top:8px;font-size:11px;color:var(--muted)}
+  .rank-breakdown-item{display:flex;align-items:center;gap:6px}
+  .rank-breakdown-swatch{width:9px;height:9px;border-radius:2px}
+  .empty-note{color:var(--muted);font-size:12px;padding:1rem;border:1px dashed var(--border);border-radius:8px;text-align:center}
+
+  /* Table */
+  .table-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;text-align:left;padding:8px 12px;border-bottom:1px solid var(--border)}
+  td{padding:7px 12px;border-bottom:1px solid rgba(37,42,56,.5)}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-family:var(--mono)}
+  .tag-ok{background:rgba(0,200,150,.12);color:var(--success)}
+  .tag-fail{background:rgba(255,59,92,.1);color:var(--danger)}
+  .tag-warn{background:rgba(255,107,53,.1);color:var(--warn)}
+  .tag-other{background:rgba(108,115,148,.12);color:var(--muted)}
+
+  .issues-badge{background:var(--danger);color:#fff;border-radius:4px;padding:2px 8px;font-size:11px;font-family:var(--mono)}
+  .export-capture{position:absolute;left:-12000px;top:0;width:1180px;background:var(--bg);color:var(--text);padding:24px;z-index:0;pointer-events:none}
+  .export-capture .dash-body{padding:0;max-width:none}
+  .export-heading{margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:14px}
+  .export-heading .brand{font-family:var(--mono);font-size:14px;color:var(--accent);letter-spacing:.15em;margin-bottom:4px}
+  .export-generated{font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:4px}
+  .export-capture img{max-width:100%;display:block}
+  @media(max-width:900px){
+    .chart-pair{grid-template-columns:1fr}
+    .donut-layout{grid-template-columns:1fr}
+    .dash-header{align-items:flex-start;gap:12px;flex-direction:column}
+    .dash-actions{justify-content:flex-start}
+  }
+  footer{text-align:center;padding:2rem;font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:.08em;border-top:1px solid var(--border);margin-top:2rem}
+</style>
+</head>
+<body>
+
+<!-- ══ UPLOAD ══ -->
+<div id="upload-screen">
+  <div class="logo-mark">Queue Log Analytics v1.0</div>
+  <h1 class="hero">Queue Call Log<br><span>Analytics Dashboard</span></h1>
+  <p class="subtitle">Upload one or more Queue Call Log Record Excel files — they will be merged and analyzed together</p>
+
+  <div class="drop-zone" id="drop-zone">
+    <input type="file" id="file-input" accept=".csv,.txt,.xlsx,.xls,.tsv" multiple>
+    <div class="drop-icon">📂</div>
+    <strong>Drop Queue Call Log files here (multiple allowed)</strong>
+    <p>or click to browse — files are merged automatically</p>
+    <div class="filetypes">
+      <span class="ft-badge">.xlsx</span>
+      <span class="ft-badge">.xls</span>
+      <span class="ft-badge">.csv</span>
+      <span class="ft-badge">.tsv</span>
+      <span class="ft-badge">.txt</span>
+    </div>
+  </div>
+
+  <!-- File queue -->
+  <div id="file-queue">
+    <div class="fq-header">
+      <span class="fq-title">// Files Queued</span>
+      <button class="btn-add-more">
+        <input type="file" id="file-input-more" accept=".csv,.txt,.xlsx,.xls,.tsv" multiple>
+        + Add More Files
+      </button>
+    </div>
+    <div id="file-list"></div>
+  </div>
+
+  <div id="progress-wrap">
+    <div id="progress-bar-outer"><div id="progress-bar"></div></div>
+    <div id="progress-label">Loading…</div>
+  </div>
+
+  <div class="col-mapper" id="col-mapper">
+    <h3>// Map Columns</h3>
+    <p class="cm-sub">Auto-detected from your files — columns are unified across all files. Adjust if needed.</p>
+    <div id="map-rows"></div>
+    <button class="btn-analyze" onclick="runAnalysis()">Generate Merged Report →</button>
+  </div>
+  <p class="sample-note" style="margin-top:.8rem">All processing is local — your data never leaves the browser</p>
+</div>
+
+<!-- ══ DASHBOARD ══ -->
+<div id="dashboard">
+  <div class="dash-header">
+    <div>
+      <div class="brand">QUEUE // Analytics</div>
+      <div class="dash-meta" id="dash-meta"></div>
+    </div>
+    <div class="dash-actions">
+      <button class="btn-export" onclick="exportPDF()">Export PDF</button>
+      <button class="btn-export" onclick="exportAllPNG()">Export PNG</button>
+      <button class="btn-back" onclick="goBack()">← New Files</button>
+    </div>
+  </div>
+  <div class="dash-body">
+
+    <div class="kpi-row" id="kpi-row"></div>
+
+    <div class="chart-grid">
+      <div class="chart-card chart-full">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:1rem">
+          <h2 style="margin:0">// Answered Calls <span id="granularity-label">- DAILY</span></h2>
+          <div id="granularity-controls" style="display:flex;gap:6px">
+            <button class="gran-btn active" data-gran="daily"   onclick="setGranularity('daily')">Daily</button>
+            <button class="gran-btn"        data-gran="weekly"  onclick="setGranularity('weekly')">Weekly</button>
+            <button class="gran-btn"        data-gran="monthly" onclick="setGranularity('monthly')">Monthly</button>
+            <button class="gran-btn"        data-gran="yearly"  onclick="setGranularity('yearly')">Yearly</button>
+          </div>
+        </div>
+        <div style="position:relative;height:320px"><canvas id="chart-daily-answered"></canvas></div>
+      </div>
+      <div class="chart-card chart-full">
+        <h2>// Abandoned Calls <span id="granularity-label2">- DAILY</span></h2>
+        <div style="position:relative;height:320px"><canvas id="chart-daily-abandoned"></canvas></div>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card chart-full">
+        <h2>// Per-Hour Queue Call Volume <span>- ANSWERED vs ABANDONED</span></h2>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:#00d4ff"></span>Answered</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#ff3b5c"></span>Abandoned</span>
+        </div>
+        <div style="position:relative;height:300px"><canvas id="chart-hourly"></canvas></div>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h2>// Hold Time <span>Distribution</span></h2>
+        <div style="position:relative;height:240px"><canvas id="chart-duration"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h2>// Internal Callers <span>vs External Callers</span></h2>
+        <div class="donut-layout">
+          <div class="donut-chart"><canvas id="chart-internal-external"></canvas></div>
+          <div class="count-legend" id="legend-internal-external"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-grid chart-pair">
+      <div class="chart-card">
+        <h2>// Total Abandoned Calls <span>vs Handled Calls</span></h2>
+        <div class="donut-layout">
+          <div class="donut-chart"><canvas id="chart-abandoned"></canvas></div>
+          <div class="count-legend" id="legend-abandoned"></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h2>// Queue Reason <span>Breakdown</span></h2>
+        <div class="donut-layout">
+          <div class="donut-chart"><canvas id="chart-disposition"></canvas></div>
+          <div class="count-legend" id="legend-disposition"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-grid chart-pair">
+      <div class="chart-card">
+        <h2>// Queue Name <span>Breakdown</span></h2>
+        <div class="rank-list" id="queue-breakdown"></div>
+      </div>
+      <div class="chart-card">
+        <h2>// Agent Answered Calls <span>Breakdown</span></h2>
+        <div class="rank-list" id="agent-breakdown"></div>
+      </div>
+    </div>
+
+    <!-- Per-file comparison (only if >1 file) -->
+    <div class="chart-card" id="file-compare-card" style="display:none">
+      <h2>// Per-File <span>Comparison</span></h2>
+      <div style="position:relative;height:260px"><canvas id="chart-files"></canvas></div>
+    </div>
+
+    <!-- Source pills + Alerts moved to bottom -->
+    <div id="source-alerts-bottom" style="margin-top:1rem">
+      <div id="source-pills" class="source-pills"></div>
+      <div class="alerts-section" id="alerts-section"></div>
+    </div>
+
+  </div>
+  <footer>QUEUE LOG ANALYTICS v1.0 // MULTI-FILE MERGE // ALL PROCESSING LOCAL</footer>
+</div>
+
+<!-- ══ YTD METRICS PAGE ══ -->
+<div id="ytd-page" style="display:none;padding:0 0 4rem">
+  <div class="dash-header">
+    <div>
+      <div class="brand">YTD PERFORMANCE // Metrics</div>
+      <div class="dash-meta" id="ytd-meta"></div>
+    </div>
+    <div class="dash-actions">
+      <button class="btn" onclick="document.getElementById('ytdJsonFile').click()">📁 Load Report</button>
+      <button class="btn-back" onclick="closeYTDMetrics()">← Back</button>
+    </div>
+    <input type="file" id="ytdJsonFile" accept=".json" style="display:none;" onchange="loadYTDReport(event)">
+  </div>
+  <div class="dash-body">
+    <div id="ytd-upload" style="text-align:center;padding:3rem;background:var(--surface);border:1px dashed var(--border);border-radius:12px;margin-bottom:2rem;">
+      <div style="font-size:2rem;margin-bottom:1rem;">📊</div>
+      <h3 style="margin-bottom:0.5rem;font-size:16px">Load YTD Performance Report</h3>
+      <p style="color:var(--muted);margin-bottom:1rem">Click to load queue_ytd_performance_report.json</p>
+      <button class="btn-analyze" onclick="document.getElementById('ytdJsonFile').click()">Select File</button>
+    </div>
+
+    <!-- Metric 1 -->
+    <div class="chart-card chart-full" id="ytd-metric1" style="display:none">
+      <h2>// Metric 1: Average Calls in Line per Day <span id="m1-span"></span></h2>
+      <div class="kpi-row" id="ytd-m1-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:1.5rem"></div>
+      <div style="position:relative;height:300px"><canvas id="ytd-chart1"></canvas></div>
+      <div class="table-wrap" style="margin-top:1rem"><table id="ytd-table1"></table></div>
+    </div>
+
+    <!-- Metric 2 -->
+    <div class="chart-card chart-full" id="ytd-metric2" style="display:none">
+      <h2>// Metric 2: Maximum Calls in Line by Month <span id="m2-span"></span></h2>
+      <div style="position:relative;height:300px"><canvas id="ytd-chart2"></canvas></div>
+      <div class="table-wrap" style="margin-top:1rem"><table id="ytd-table2"></table></div>
+    </div>
+
+    <!-- Metric 3 -->
+    <div class="chart-card chart-full" id="ytd-metric3" style="display:none">
+      <h2>// Metric 3: YTD Average Daily Abandoned Calls <span id="m3-span"></span></h2>
+      <div class="kpi-row" id="ytd-m3-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:1.5rem"></div>
+      <div id="ytd-m3-alert" style="margin-bottom:1rem"></div>
+      <div style="position:relative;height:300px"><canvas id="ytd-chart3"></canvas></div>
+      <div class="table-wrap" style="margin-top:1rem"><table id="ytd-table3"></table></div>
+    </div>
+
+    <!-- Metric 4 -->
+    <div class="chart-card chart-full" id="ytd-metric4" style="display:none">
+      <h2>// Metric 4: YTD Average Hold Time <span id="m4-span"></span></h2>
+      <div class="kpi-row" id="ytd-m4-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:1.5rem"></div>
+      <div style="position:relative;height:300px"><canvas id="ytd-chart4"></canvas></div>
+    </div>
+
+    <!-- Metric 5 -->
+    <div class="chart-card chart-full" id="ytd-metric5" style="display:none">
+      <h2>// Metric 5: YTD Average Talk Time per Customer <span id="m5-span"></span></h2>
+      <div class="kpi-row" id="ytd-m5-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:1.5rem"></div>
+      <div style="position:relative;height:300px"><canvas id="ytd-chart5"></canvas></div>
+    </div>
+
+    <!-- Metric 6 -->
+    <div class="chart-card chart-full" id="ytd-metric6" style="display:none">
+      <h2>// Metric 6: Average Daily Abandoned Calls per Shift <span id="m6-span"></span></h2>
+      <div style="position:relative;height:300px"><canvas id="ytd-chart6"></canvas></div>
+      <div class="table-wrap" style="margin-top:1rem"><table id="ytd-table6"></table></div>
+    </div>
+
+    <!-- Metric 7 -->
+    <div class="chart-card chart-full" id="ytd-metric7" style="display:none">
+      <h2>// Metric 7: Peak Hours & Manpower Analysis <span id="m7-span"></span></h2>
+      <div style="position:relative;height:350px"><canvas id="ytd-chart7"></canvas></div>
+      <div class="table-wrap" style="margin-top:1rem"><table id="ytd-table7"></table></div>
+    </div>
+
+    <!-- Metric 8 -->
+    <div class="chart-card chart-full" id="ytd-metric8" style="display:none">
+      <h2>// Metric 8: Manpower Logged in per Interval <span id="m8-span"></span></h2>
+      <div class="kpi-row" id="ytd-m8-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:1.5rem"></div>
+      <div style="position:relative;height:300px"><canvas id="ytd-chart8"></canvas></div>
+      <div class="table-wrap" style="margin-top:1rem"><table id="ytd-table8"></table></div>
+    </div>
+  </div>
+  <footer>YTD PERFORMANCE METRICS // QUEUE ANALYSIS</footer>
+</div>
+
+<script>
+// ═══════════════════════════════
+//  STATE
+// ═══════════════════════════════
+let fileQueue = [];   // { name, rows, headers, isExcel, status }
+let colMap = {};
+const charts = {};
+let currentGranularity = 'daily';
+let rawByDay = {};
+
+const barValueLabels = {
+  id:'barValueLabels',
+  afterDataLimits(chart, args, opts) {
+    opts = opts || {};
+    if (opts.display === false || !isBarChart(chart)) return;
+    const scale = args.scale;
+    if (scale.axis === 'y' && typeof scale.max === 'number' && scale.max > 0) {
+      scale.max *= Number(opts.graceFactor || 1.16);
+    }
+  },
+  afterDatasetsDraw(chart, args, opts) {
+    opts = opts || {};
+    if (opts.display === false || !isBarChart(chart)) return;
+    const {ctx, chartArea} = chart;
+    const datasets = chart.data.datasets || [];
+    const visibleBars = datasets.map((dataset, datasetIndex) => ({
+      dataset,
+      meta: chart.getDatasetMeta(datasetIndex)
+    })).filter(item => !item.meta.hidden && (chart.config.type === 'bar' || item.dataset.type === 'bar' || item.meta.type === 'bar'));
+    if (!visibleBars.length) return;
+
+    const isStacked = opts.mode === 'total' || (
+      opts.mode !== 'value' &&
+      (Object.values(chart.scales || {}).some(scale => scale.options && scale.options.stacked) ||
+       datasets.some(dataset => dataset.stack))
+    );
+
+    ctx.save();
+    ctx.font = `${opts.fontWeight||600} ${opts.fontSize||10}px ${opts.fontFamily||'Inter, sans-serif'}`;
+    ctx.fillStyle = opts.color || '#dfe7ff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+
+    if (isStacked) {
+      (chart.data.labels || []).forEach((_, index) => {
+        let total = 0;
+        let topBar = null;
+        const segments = [];
+        visibleBars.forEach(({dataset, meta}) => {
+          const value = Number(dataset.data[index] || 0);
+          const bar = meta.data[index];
+          if (!Number.isFinite(value) || !bar) return;
+          total += value;
+          if (!topBar || bar.y < topBar.y) topBar = bar;
+          segments.push({value, bar});
+        });
+        segments.forEach(({value, bar}) => {
+          if (value <= 0) return;
+          const top = Math.min(bar.y, bar.base);
+          const bottom = Math.max(bar.y, bar.base);
+          const height = bottom - top;
+          ctx.fillStyle = opts.segmentColor || '#f8fbff';
+          ctx.textBaseline = 'middle';
+          const y = top + height / 2;
+          ctx.fillText(formatBarLabel(value, opts), bar.x, Math.max(y, chartArea.top + 12));
+        });
+        if (topBar) {
+          ctx.fillStyle = opts.totalColor || opts.color || '#dfe7ff';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(formatBarLabel(total, opts), topBar.x, Math.max(topBar.y - 5, chartArea.top + 12));
+        }
+      });
+    } else {
+      visibleBars.forEach(({dataset, meta}) => {
+        meta.data.forEach((bar, index) => {
+          const value = Number(dataset.data[index] || 0);
+          if (!Number.isFinite(value) || !bar) return;
+          ctx.fillText(formatBarLabel(value, opts), bar.x, Math.max(bar.y - 5, chartArea.top + 12));
+        });
+      });
+    }
+    ctx.restore();
+  }
+};
+
+function isBarChart(chart) {
+  return chart.config.type === 'bar' || (chart.data.datasets || []).some(dataset => dataset.type === 'bar');
+}
+
+function formatBarLabel(value, opts) {
+  return Number(value).toLocaleString(undefined, {
+    maximumFractionDigits: opts.maxFractionDigits ?? (Number.isInteger(value) ? 0 : 1)
+  });
+}
+
+if (typeof Chart !== 'undefined') Chart.register(barValueLabels);
+
+const FIELDS = [
+  { key:'startDate',   label:'Start Date',        required:false },
+  { key:'startTime',   label:'Start Time',        required:false },
+  { key:'stopDate',    label:'Stop Date',         required:false },
+  { key:'stopTime',    label:'Stop Time',         required:false },
+  { key:'start',       label:'Start Date/Time',   required:false },
+  { key:'stop',        label:'Stop Date/Time',    required:false },
+  { key:'queue',       label:'Queue ID',          required:false },
+  { key:'queueName',   label:'Queue Name',        required:false },
+  { key:'agent',       label:'Agent ID',          required:false },
+  { key:'agentName',   label:'Agent Name',        required:false },
+  { key:'caller',      label:'Caller ID',         required:false },
+  { key:'holdTime',    label:'Hold Time',         required:false },
+  { key:'callTime',    label:'Call Time',         required:false },
+  { key:'duration',    label:'Duration',          required:false },
+  { key:'totalDuration',label:'Total Duration',   required:false },
+  { key:'reason',      label:'Reason',            required:false },
+];
+
+// ═══════════════════════════════
+//  FILE INPUT WIRING
+// ═══════════════════════════════
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const fileInputMore = document.getElementById('file-input-more');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  addFiles(Array.from(e.dataTransfer.files));
+});
+fileInput.addEventListener('change', () => { addFiles(Array.from(fileInput.files)); fileInput.value=''; });
+fileInputMore.addEventListener('change', () => { addFiles(Array.from(fileInputMore.files)); fileInputMore.value=''; });
+
+// ═══════════════════════════════
+//  FILE QUEUE MANAGEMENT
+// ═══════════════════════════════
+function addFiles(files) {
+  const validExts = ['csv','tsv','txt','xlsx','xls'];
+  files.forEach(f => {
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (!validExts.includes(ext)) return;
+    // Avoid duplicates by name+size
+    if (fileQueue.find(q => q.name === f.name && q.size === f.size)) return;
+    const entry = { id: Date.now() + Math.random(), name: f.name, size: f.size, rows: [], headers: [], isExcel: false, status: 'loading' };
+    fileQueue.push(entry);
+    renderQueue();
+    loadFile(f, entry);
+  });
+  document.getElementById('file-queue').style.display = fileQueue.length ? 'block' : 'none';
+}
+
+function removeFile(id) {
+  fileQueue = fileQueue.filter(f => f.id !== id);
+  renderQueue();
+  if (!fileQueue.length) {
+    document.getElementById('file-queue').style.display = 'none';
+    document.getElementById('col-mapper').style.display = 'none';
+  } else {
+    tryShowMapper();
+  }
+}
+
+function renderQueue() {
+  const list = document.getElementById('file-list');
+  list.innerHTML = fileQueue.map(f => {
+    const icon = f.name.match(/\.xlsx?$/i) ? '📊' : '📄';
+    const statusCls = f.status === 'ready' ? 'status-ready' : f.status === 'error' ? 'status-error' : 'status-loading';
+    const statusTxt = f.status === 'ready' ? `✓ ${f.rows.length.toLocaleString()} rows` : f.status === 'error' ? 'Error' : 'Loading…';
+    return `<div class="file-item">
+      <span class="fi-icon">${icon}</span>
+      <span class="fi-name" title="${esc(f.name)}">${esc(f.name)}</span>
+      <span class="fi-rows">${f.status === 'ready' ? f.rows.length.toLocaleString() + ' rows' : ''}</span>
+      <span class="fi-status ${statusCls}">${statusTxt}</span>
+      <button class="fi-remove" onclick="removeFile(${f.id})" title="Remove">✕</button>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════
+//  FILE LOADING
+// ═══════════════════════════════
+function loadFile(f, entry) {
+  const ext = f.name.split('.').pop().toLowerCase();
+  if (ext === 'xlsx' || ext === 'xls') {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, { type:'array', cellDates:false });
+        const sheetName = wb.SheetNames.find(name => {
+          const preview = XLSX.utils.sheet_to_json(wb.Sheets[name], { header:1, raw:false, defval:'', range:0 });
+          const header = (preview[0]||[]).map(v=>String(v).toLowerCase().replace(/[\s_\-]/g,''));
+          return header.includes('starttime') && header.includes('reason') && (header.includes('queuename') || header.includes('queue'));
+        }) || wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        const data = XLSX.utils.sheet_to_json(ws, { raw:true, defval:'' });
+        entry.rows = data;
+        entry.headers = data.length ? Object.keys(data[0]) : [];
+        entry.isExcel = true;
+        entry.status = 'ready';
+      } catch(err) {
+        entry.status = 'error';
+        entry.error = err.message;
+      }
+      renderQueue();
+      tryShowMapper();
+    };
+    reader.readAsArrayBuffer(f);
+  } else {
+    Papa.parse(f, {
+      header:true, skipEmptyLines:true,
+      complete(res) {
+        entry.rows = res.data;
+        entry.headers = res.meta.fields || [];
+        entry.isExcel = false;
+        entry.status = 'ready';
+        renderQueue();
+        tryShowMapper();
+      },
+      error(err) {
+        entry.status = 'error';
+        entry.error = err.message;
+        renderQueue();
+      }
+    });
+  }
+}
+
+function tryShowMapper() {
+  const ready = fileQueue.filter(f => f.status === 'ready');
+  if (!ready.length) return;
+  // Union all headers across all ready files - maintain order with deduplication
+  const allHeaders = [];
+  const seen = new Set();
+  ready.flatMap(f => f.headers).forEach(h => {
+    if (!seen.has(h)) {
+      seen.add(h);
+      allHeaders.push(h);
+    }
+  });
+  showMapper(allHeaders);
+}
+
+// ═══════════════════════════════
+//  COLUMN MAPPER
+// ═══════════════════════════════
+function cleanHeader(header) {
+  return String(header||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+}
+
+function autoDetect(header, key) {
+  const h = cleanHeader(header);
+  const exact = {
+    startDate:['startdate'], startTime:['starttime'], stopDate:['stopdate'], stopTime:['stoptime'],
+    start:['startdatetime','datetime','timestamp'], stop:['stopdatetime','enddatetime'],
+    queue:['queue'], queueName:['queuename'],
+    agent:['agent'], agentName:['agentname'], caller:['callerid'],
+    holdTime:['holdtime'], callTime:['calltime'], duration:['duration'],
+    totalDuration:['totalduration'], reason:['reason']
+  };
+  if (exact[key] && exact[key].includes(h)) return true;
+  const hints = {
+    startDate:    ['calldate','queuedate'],
+    startTime:    ['startclock','starttod'],
+    stopDate:     ['enddate'],
+    stopTime:     ['endtime','stoptod'],
+    start:        ['callstart','startedat','startdateandtime'],
+    stop:         ['callstop','callend','endedat','stopdateandtime'],
+    queue:        ['queueid','queuecode','queuenumber'],
+    queueName:    ['queuename'],
+    agent:        ['agentid','agent'],
+    agentName:    ['agentname','agent'],
+    caller:       ['callerid','caller','clid','ani','phone','number'],
+    holdTime:     ['waittime','waitingtime','queuewait'],
+    callTime:     ['talktime','talk','handlingtime'],
+    duration:     ['callduration','queueduration'],
+    totalDuration:['totaldur'],
+    reason:       ['reason','status','result','event','disposition'],
+  };
+  return (hints[key]||[]).some(k=>h.includes(k));
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;') }
+
+function showMapper(headers) {
+  const mapper = document.getElementById('col-mapper');
+  mapper.style.display = 'block';
+  const rowsDiv = document.getElementById('map-rows');
+  rowsDiv.innerHTML = '';
+  FIELDS.forEach(f => {
+    const opts = ['<option value="">— skip —</option>',
+      ...headers.map(h=>`<option value="${esc(h)}" ${autoDetect(h,f.key)?'selected':''}>${esc(h)}</option>`)
+    ].join('');
+    rowsDiv.innerHTML += `<div class="map-row">
+      <label>${f.label}${f.required?' <span style="color:var(--accent)">*</span>':''}</label>
+      <select id="map-${f.key}">${opts}</select>
+    </div>`;
+  });
+}
+
+// ═══════════════════════════════
+//  PARSERS
+// ═══════════════════════════════
+function excelSerialToDate(n) {
+  if (isNaN(n)) return null;
+  // Excel serial: days since 1/1/1900 (with Excel's 1900 leap-year bug).
+  // We extract components arithmetically and build a LOCAL Date so the
+  // hour is never shifted by the browser's UTC offset.
+  const totalSeconds = Math.round((n - 1) * 86400); // seconds since 1899-12-31
+  const daysSince = Math.floor(totalSeconds / 86400);
+  const secInDay  = ((totalSeconds % 86400) + 86400) % 86400;
+  // Anchor: Dec 31 1899 in local time
+  const anchor = new Date(1899, 11, 31);
+  anchor.setDate(anchor.getDate() + daysSince);
+  const hour   = Math.floor(secInDay / 3600);
+  const minute = Math.floor((secInDay % 3600) / 60);
+  const second = secInDay % 60;
+  return new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate(), hour, minute, second);
+}
+
+function hasVal(v) {
+  return !(v===''||v===null||v===undefined);
+}
+
+function parseDur(v, isExcel) {
+  if (v===''||v===null||v===undefined) return 0;
+  if (typeof v==='number') {
+    // If Excel and value is < 1, it's a fraction of a day (Excel time format)
+    // Convert to seconds: fraction * 86400 seconds per day
+    if (isExcel && v>0 && v<1) return Math.round(v * 86400);
+    // Otherwise treat as already in seconds
+    return Math.round(v);
+  }
+  const s = String(v).trim();
+  // HH:MM:SS format
+  const hms = s.match(/^(\d+):(\d{2}):(\d{2})$/);
+  if (hms) return +hms[1]*3600 + +hms[2]*60 + +hms[3];
+  // MM:SS format (minutes and seconds)
+  const ms = s.match(/^(\d+):(\d{2})$/);
+  if (ms) return +ms[1]*60 + +ms[2];
+  // Try parsing as decimal number (seconds)
+  const n = parseFloat(s);
+  if (!isNaN(n) && n>=0) return Math.round(n);
+  return 0;
+}
+
+function parseDT(v, isExcel) {
+  if (!hasVal(v)) return null;
+  if (typeof v==='number' && isExcel) return excelSerialToDate(v);
+  if (v instanceof Date) return v;
+  const s = String(v).trim();
+  // Check if it's an Excel serial number (date range roughly 1900-2200)
+  const n = parseFloat(s);
+  if (/^\d+(?:\.\d+)?$/.test(s) && !isNaN(n) && n>0 && n<50000) return excelSerialToDate(n);
+  // Try M/D/YYYY HH:MM:SS or M/D/YYYY HH:MM format
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return new Date(+m[3], +m[1]-1, +m[2], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+  // Try ISO format and other standard formats
+  const d = new Date(s);
+  return !isNaN(d.getTime()) ? d : null;
+}
+
+function parseDatePart(v, isExcel) {
+  const dt = parseDT(v, isExcel);
+  return dt ? {year:dt.getFullYear(), month:dt.getMonth(), day:dt.getDate()} : null;
+}
+
+function parseTimePart(v, isExcel) {
+  if (!hasVal(v)) return null;
+  if (v instanceof Date) return {hour:v.getHours(), minute:v.getMinutes(), second:v.getSeconds()};
+  if (typeof v==='number') {
+    let seconds = null;
+    if (isExcel && v>0 && v<1) seconds = Math.round(v * 86400);
+    else if (isExcel && v>1 && v<50000 && v%1) seconds = Math.round((v%1) * 86400);
+    else if (!isExcel && v>=0 && v<86400) seconds = Math.round(v);
+    if (seconds!==null) {
+      seconds = ((seconds % 86400) + 86400) % 86400;
+      return {hour:Math.floor(seconds/3600), minute:Math.floor(seconds%3600/60), second:seconds%60};
+    }
+  }
+  const s = String(v).trim();
+  const hms = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (hms) {
+    let hour = +hms[1];
+    const ampm = (hms[4]||'').toUpperCase();
+    if (ampm==='PM' && hour<12) hour += 12;
+    if (ampm==='AM' && hour===12) hour = 0;
+    return {hour, minute:+hms[2], second:+(hms[3]||0)};
+  }
+  const dt = parseDT(v, isExcel);
+  return dt ? {hour:dt.getHours(), minute:dt.getMinutes(), second:dt.getSeconds()} : null;
+}
+
+function combineDateAndTime(dateValue, timeValue, fallbackValue, isExcel) {
+  const datePart = hasVal(dateValue) ? parseDatePart(dateValue, isExcel) : null;
+  const timePart = hasVal(timeValue) ? parseTimePart(timeValue, isExcel) : null;
+  if (datePart) {
+    return new Date(
+      datePart.year,
+      datePart.month,
+      datePart.day,
+      timePart ? timePart.hour : 0,
+      timePart ? timePart.minute : 0,
+      timePart ? timePart.second : 0
+    );
+  }
+  if (hasVal(timeValue)) {
+    const timeAsDate = parseDT(timeValue, isExcel);
+    if (timeAsDate) return timeAsDate;
+  }
+  return hasVal(fallbackValue) ? parseDT(fallbackValue, isExcel) : null;
+}
+
+function getVal(row, key) {
+  const col = colMap[key];
+  return (col&&col!=='') ? (row[col]!==undefined?row[col]:'') : '';
+}
+
+function parseRowDateTime(row, file, prefix) {
+  return combineDateAndTime(
+    getVal(row, prefix+'Date'),
+    getVal(row, prefix+'Time'),
+    getVal(row, prefix),
+    file.isExcel
+  );
+}
+
+function normText(v) {
+  return String(v||'').trim().toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ');
+}
+
+function callOutcome(d, agent) {
+  const s = normText(d);
+  if (!s) return isRealAgent(agent) ? 'HANDLED' : 'ABANDONED';
+  if (/(^|\b)(completecaller|completeagent|complete|answered|answer|connected|transfer|transferred|success|successful)(\b|$)/i.test(s)) {
+    return 'HANDLED';
+  }
+  if (/(^|\b)(abandon(?:ed)?|no\s*answer|unanswered|not\s*answered|missed|timeout|exitwithtimeout|exitwithkey|failed|failure|cancel(?:led)?|congestion|declined|rejected|busy)(\b|$)/i.test(s)) {
+    return 'ABANDONED';
+  }
+  return 'ABANDONED';
+}
+
+function isAnswered(d, agent) { return callOutcome(d, agent) === 'HANDLED'; }
+
+function extractDigits(v) {
+  const m = String(v||'').match(/\+?\d+/g);
+  return m ? m.join('') : '';
+}
+
+function isExtensionLike(v) {
+  const raw = String(v||'').trim();
+  const digits = extractDigits(raw);
+  return !!digits && !raw.startsWith('+') && digits.length >= 2 && digits.length <= 6;
+}
+
+function isExternalNumber(v) {
+  const raw = String(v||'').trim();
+  const digits = extractDigits(raw);
+  return raw.startsWith('+') || digits.length >= 7;
+}
+
+function isLocalService(v) {
+  return /voicemail|voice mail|queue|ivr|ring|local|operator|centre|center/i.test(String(v||''));
+}
+
+function classifyCallerScope(caller) {
+  const raw = String(caller||'').trim();
+  if (!raw) return 'external';
+  return isExtensionLike(raw) ? 'internal' : 'external';
+}
+
+function isRealAgent(agent) {
+  const s = normText(agent);
+  return !!s && !/^(none|unknown|null|n\/a|na|no agent|unassigned)$/.test(s);
+}
+
+// ═══════════════════════════════
+//  RUN ANALYSIS
+// ═══════════════════════════════
+function runAnalysis() {
+  FIELDS.forEach(f => {
+    const el = document.getElementById('map-'+f.key);
+    colMap[f.key] = el&&el.value ? el.value : null;
+  });
+  const missing = FIELDS.filter(f=>f.required && !colMap[f.key]).map(f=>f.label.replace(' / ','/'));
+  if (!(colMap.start || colMap.startDate || colMap.startTime)) {
+    missing.push('Start Date/Time');
+  }
+  if (missing.length) {
+    alert('Please map required columns: '+missing.join(', '));
+    return;
+  }
+  const ready = fileQueue.filter(f=>f.status==='ready');
+  if (!ready.length) { alert('No files ready.'); return; }
+  buildDashboard(ready);
+}
+
+// ═══════════════════════════════
+//  GRANULARITY / TREND CHARTS
+// ═══════════════════════════════
+function setGranularity(gran) {
+  currentGranularity = gran;
+  document.querySelectorAll('.gran-btn').forEach(b => b.classList.toggle('active', b.dataset.gran === gran));
+  const labels = { daily:'- DAILY', weekly:'- WEEKLY', monthly:'- MONTHLY', yearly:'- YEARLY' };
+  document.getElementById('granularity-label').textContent  = labels[gran];
+  document.getElementById('granularity-label2').textContent = labels[gran];
+  redrawCallTrendCharts();
+}
+
+function aggregateByGranularity(byDay, gran) {
+  const result = {};
+  Object.entries(byDay).forEach(([dk, v]) => {
+    const [y, m, d] = dk.split('-');
+    let key;
+    if (gran === 'daily') {
+      key = dk;
+    } else if (gran === 'weekly') {
+      const dt = new Date(+y, +m - 1, +d);
+      const jan1 = new Date(dt.getFullYear(), 0, 1);
+      const week = Math.ceil(((dt - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+      key = `${y}-W${String(week).padStart(2,'0')}`;
+    } else if (gran === 'monthly') {
+      key = `${y}-${m}`;
+    } else if (gran === 'yearly') {
+      key = y;
+    }
+    if (!result[key]) result[key] = { ans: 0, no: 0 };
+    result[key].ans += v.ans;
+    result[key].no  += v.no;
+  });
+  return result;
+}
+
+function redrawCallTrendCharts() {
+  const aggregated = aggregateByGranularity(rawByDay, currentGranularity);
+  const dks = Object.keys(aggregated).sort();
+  const dayLabels    = dks.length ? dks : ['No Date'];
+  const dayAnswered  = dks.map(k => aggregated[k].ans);
+  const dayAbandoned = dks.map(k => aggregated[k].no);
+
+  const thickness = dks.length > 180 ? 4 : dks.length > 60 ? 10 : dks.length > 30 ? 18 : 34;
+  const maxTicks   = dks.length > 60 ? 12 : dks.length > 30 ? 16 : 24;
+  const showLabels = dks.length <= 60;
+
+  const opts = {
+    responsive: true, maintainAspectRatio: false,
+    layout: { padding: { top: 22 } },
+    plugins: {
+      legend: { display: false },
+      barValueLabels: { display: showLabels, color:'#dfe7ff', fontSize:10, fontWeight:600 }
+    },
+    scales: {
+      y: { beginAtZero: true, grace:'15%', grid:{ color:'rgba(255,255,255,.04)' }, ticks:{ color:'#6b7394', font:{ size:10 }, precision:0 } },
+      x: { grid:{ display:false }, ticks:{ color:'#6b7394', font:{ size:10 }, maxRotation: dks.length > 60 ? 45 : 0, autoSkip:true, maxTicksLimit: maxTicks } }
+    }
+  };
+
+  if (charts.dailyAnswered) charts.dailyAnswered.destroy();
+  charts.dailyAnswered = new Chart(document.getElementById('chart-daily-answered'), {
+    type: 'bar',
+    data: { labels: dayLabels, datasets: [{ label:'Answered', data: dayAnswered, backgroundColor:'rgba(0,212,255,.72)', borderColor:'#00d4ff', borderWidth:1, borderRadius:4, maxBarThickness: thickness }] },
+    options: opts
+  });
+
+  if (charts.dailyAbandoned) charts.dailyAbandoned.destroy();
+  charts.dailyAbandoned = new Chart(document.getElementById('chart-daily-abandoned'), {
+    type: 'bar',
+    data: { labels: dayLabels, datasets: [{ label:'Abandoned', data: dayAbandoned, backgroundColor:'rgba(255,59,92,.72)', borderColor:'#ff3b5c', borderWidth:1, borderRadius:4, maxBarThickness: thickness }] },
+    options: opts
+  });
+}
+
+// ═══════════════════════════════
+//  DASHBOARD
+// ═══════════════════════════════
+function buildDashboard(files) {
+  Object.values(charts).forEach(c=>{try{c.destroy()}catch(_){}});
+  document.getElementById('upload-screen').style.display='none';
+  document.getElementById('dashboard').style.display='block';
+  document.getElementById('file-compare-card').style.display='none';
+
+  const totalRows = files.reduce((a,f)=>a+f.rows.length,0);
+  document.getElementById('dash-meta').textContent =
+    files.length + ' file' + (files.length>1?'s':'')+' · '+totalRows.toLocaleString()+' total records';
+
+  // Source pills
+  document.getElementById('source-pills').innerHTML = files.map(f=>
+    `<span class="source-pill">${esc(f.name)} <span>${f.rows.length.toLocaleString()} rows</span></span>`
+  ).join('');
+
+  // Aggregate across all files, tracking per-file stats
+  let handled=0, abandoned=0;
+  const dispositions={}, byHour=Array(24).fill(0).map(()=>({ans:0,no:0}));
+  const byDay={}, queueStats={}, agentStats={};
+  const scopeCounts={internal:0,external:0};
+  const holdTimes=[], talkTimes=[];
+  let dateMin=null,dateMax=null;
+  const perFile = files.map(f=>({name:f.name,total:0,ans:0,no:0}));
+
+  files.forEach((file, fi) => {
+    for (const row of file.rows) {
+      const reason = String(getVal(row,'reason')||'').trim();
+      const queue = String(getVal(row,'queueName')||getVal(row,'queue')||'Unknown Queue').trim();
+      const agent = String(getVal(row,'agentName')||getVal(row,'agent')||'').trim();
+      const caller = String(getVal(row,'caller')||'Unknown').trim();
+      const holdRaw = getVal(row,'holdTime');
+      const talkRaw = getVal(row,'callTime');
+      const hold = parseDur(holdRaw, file.isExcel);
+      const talk = parseDur(talkRaw, file.isExcel);
+      const dt = parseRowDateTime(row, file, 'start');
+      const ans = isAnswered(reason, agent);
+      const scope = classifyCallerScope(caller);
+      const disposition = reason || (ans ? 'ANSWERED' : 'ABANDONED');
+
+      if (ans) handled++; else abandoned++;
+      scopeCounts[scope]++;
+      perFile[fi].total++;
+      if (ans) perFile[fi].ans++; else perFile[fi].no++;
+
+      dispositions[disposition]=(dispositions[disposition]||0)+1;
+
+      if (dt) {
+        const h=dt.getHours();
+        const dk=[
+          dt.getFullYear(),
+          String(dt.getMonth()+1).padStart(2,'0'),
+          String(dt.getDate()).padStart(2,'0')
+        ].join('-');
+        byHour[h].ans+=ans?1:0; byHour[h].no+=ans?0:1;
+        if(!byDay[dk]) byDay[dk]={ans:0,no:0};
+        byDay[dk].ans+=ans?1:0; byDay[dk].no+=ans?0:1;
+        if(!dateMin||dt<dateMin) dateMin=dt;
+        if(!dateMax||dt>dateMax) dateMax=dt;
+      }
+
+      if(!queueStats[queue]) queueStats[queue]={total:0,ans:0,no:0,holdSum:0,talkSum:0};
+      queueStats[queue].total++;
+      if(ans) queueStats[queue].ans++; else queueStats[queue].no++;
+      queueStats[queue].holdSum+=hold;
+      queueStats[queue].talkSum+=talk;
+      if(ans && isRealAgent(agent)) agentStats[agent]=(agentStats[agent]||0)+1;
+      // Only add to time arrays if values are valid
+      if(hold>0 && isFinite(hold)) holdTimes.push(hold);
+      if(talk>0 && isFinite(talk)) talkTimes.push(talk);
+    }
+  });
+
+  const totalCalls=handled+abandoned;  // Total of valid calls (not empty rows)
+  const ansRate=totalCalls>0?handled/totalCalls*100:0;
+  const avgHold=holdTimes.length>0?holdTimes.reduce((a,b)=>a+b,0)/holdTimes.length:0;
+  const avgTalk=talkTimes.length>0?talkTimes.reduce((a,b)=>a+b,0)/talkTimes.length:0;
+  const peakTotal=peakHourInfo(byHour,'total');
+  const peakAnswered=peakHourInfo(byHour,'answered');
+  const dr=dateMin&&dateMax?fmtDate(dateMin)+' – '+fmtDate(dateMax):'';
+
+  // ── KPIs ──
+  document.getElementById('kpi-row').innerHTML=`
+    <div class="kpi accent-kpi"><div class="kpi-label">Total Queue Calls</div><div class="kpi-value">${totalCalls.toLocaleString()}</div><div class="kpi-sub">${dr}</div></div>
+    <div class="kpi success-kpi"><div class="kpi-label">Handled</div><div class="kpi-value">${handled.toLocaleString()}</div><div class="kpi-sub">${ansRate.toFixed(1)}%</div></div>
+    <div class="kpi danger-kpi"><div class="kpi-label">Abandoned</div><div class="kpi-value">${abandoned.toLocaleString()}</div><div class="kpi-sub">${(100-ansRate).toFixed(1)}%</div></div>
+    <div class="kpi"><div class="kpi-label">Internal Callers</div><div class="kpi-value">${scopeCounts.internal.toLocaleString()}</div></div>
+    <div class="kpi"><div class="kpi-label">External Callers</div><div class="kpi-value">${scopeCounts.external.toLocaleString()}</div></div>
+    <div class="kpi"><div class="kpi-label">Avg Hold</div><div class="kpi-value">${fmtDur(avgHold)}</div></div>
+    <div class="kpi"><div class="kpi-label">Avg Talk</div><div class="kpi-value">${fmtDur(avgTalk)}</div></div>
+    <div class="kpi"><div class="kpi-label">Peak Total Hour</div><div class="kpi-value">${fmtHour(peakTotal.hour)}</div><div class="kpi-sub">${peakTotal.calls.toLocaleString()} calls</div></div>
+    <div class="kpi"><div class="kpi-label">Peak Answered Hour</div><div class="kpi-value">${fmtHour(peakAnswered.hour)}</div><div class="kpi-sub">${peakAnswered.calls.toLocaleString()} answered</div></div>
+  `;
+
+  // ── Alerts ──
+  const alerts=buildAlerts(ansRate,queueStats,byHour,dispositions,totalCalls,holdTimes);
+  document.getElementById('alerts-section').innerHTML=alerts.map(a=>`
+    <div class="alert-card ${a.type}"><div class="alert-dot"></div>
+    <div><strong>${a.title}</strong>${a.body}</div></div>`).join('');
+
+  renderCountLegend('legend-internal-external',[
+    {label:'Internal',value:scopeCounts.internal,color:'#00d4ff'},
+    {label:'External',value:scopeCounts.external,color:'#7c5cfc'},
+  ]);
+  renderCountLegend('legend-abandoned',[
+    {label:'Handled',value:handled,color:'#00d4ff'},
+    {label:'Abandoned',value:abandoned,color:'#ff3b5c'},
+  ]);
+
+  const dl=Object.keys(dispositions);
+  renderCountLegend('legend-disposition',dl.map((label,i)=>({
+    label:label||'UNKNOWN',
+    value:dispositions[label],
+    color:dispositionColor(label,i),
+  })));
+  renderQueueBreakdown('queue-breakdown',
+    Object.entries(queueStats).map(([label,s])=>({label,total:s.total,handled:s.ans,abandoned:s.no})),
+    totalCalls
+  );
+  renderRankBreakdown('agent-breakdown',
+    Object.entries(agentStats).map(([label,value])=>({label,value})),
+    handled,
+    '#00c896'
+  );
+
+  // ── Reason breakdown ──
+  charts.disp=new Chart(document.getElementById('chart-disposition'),{
+    type:'doughnut',
+    data:{labels:dl,datasets:[{data:Object.values(dispositions),backgroundColor:dl.map((l,i)=>dispositionColor(l,i)),borderWidth:0,hoverOffset:6}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'60%',
+      plugins:{legend:{display:false}}}
+  });
+
+  // ── Hold time histogram ──
+  const bins=[0,10,20,30,60,120,300,600,99999],blabels=['0–10s','10–20s','20–30s','30–60s','1–2m','2–5m','5–10m','10m+'];
+  const bc=Array(blabels.length).fill(0);
+  holdTimes.forEach(d=>{for(let i=0;i<bins.length-1;i++)if(d>=bins[i]&&d<bins[i+1]){bc[i]++;break;}});
+  charts.dur=new Chart(document.getElementById('chart-duration'),{
+    type:'bar',data:{labels:blabels,datasets:[{data:bc,backgroundColor:'rgba(0,200,150,.65)',borderWidth:0}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{grid:{display:false},ticks:{color:'#6b7394',font:{size:11}}},
+              y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#6b7394',font:{size:10}}}}}
+  });
+
+  // ── Internal/external and abandoned totals ──
+  charts.scope=new Chart(document.getElementById('chart-internal-external'),{
+    type:'doughnut',
+    data:{labels:['Internal Callers','External Callers'],datasets:[{data:[scopeCounts.internal,scopeCounts.external],backgroundColor:['rgba(0,212,255,.78)','rgba(124,92,252,.78)'],borderWidth:0,hoverOffset:6}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'58%',
+      plugins:{legend:{display:false}}}
+  });
+
+  charts.abandoned=new Chart(document.getElementById('chart-abandoned'),{
+    type:'doughnut',
+    data:{labels:['Handled','Abandoned'],datasets:[{data:[handled,abandoned],backgroundColor:['rgba(0,212,255,.78)','rgba(255,59,92,.78)'],borderWidth:0,hoverOffset:6}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'58%',
+      plugins:{legend:{display:false}}}
+  });
+
+  // Per-hour trend
+  const hourLabels=Array.from({length:24},(_,h)=>String(h).padStart(2,'0')+':00');
+  charts.hourly=new Chart(document.getElementById('chart-hourly'),{
+    type:'bar',
+    data:{labels:hourLabels,datasets:[
+      {label:'Answered',data:byHour.map(h=>h.ans),backgroundColor:'rgba(0,212,255,.72)',borderColor:'#00d4ff',borderWidth:1,borderRadius:4,maxBarThickness:28},
+      {label:'Abandoned',data:byHour.map(h=>h.no),backgroundColor:'rgba(255,59,92,.72)',borderColor:'#ff3b5c',borderWidth:1,borderRadius:4,maxBarThickness:28},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      layout:{padding:{top:22}},
+      plugins:{legend:{display:false}},
+      scales:{
+        y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#6b7394',font:{size:10},precision:0}},
+        x:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#6b7394',font:{size:10},maxRotation:0}}
+      }}
+  });
+
+  const dks=Object.keys(byDay).sort();
+  const dayCount = dks.length;
+
+  // Auto-select sensible granularity based on data range
+  if (dayCount > 365)     currentGranularity = 'monthly';
+  else if (dayCount > 90) currentGranularity = 'weekly';
+  else                    currentGranularity = 'daily';
+  document.querySelectorAll('.gran-btn').forEach(b => b.classList.toggle('active', b.dataset.gran === currentGranularity));
+  const granLabels = { daily:'- DAILY', weekly:'- WEEKLY', monthly:'- MONTHLY', yearly:'- YEARLY' };
+  document.getElementById('granularity-label').textContent  = granLabels[currentGranularity];
+  document.getElementById('granularity-label2').textContent = granLabels[currentGranularity];
+  rawByDay = byDay;
+  redrawCallTrendCharts();
+
+  // ── Per-file comparison ──
+  if(files.length>1){
+    document.getElementById('file-compare-card').style.display='block';
+    const shortNames=perFile.map(f=>f.name.replace(/\.[a-z]+$/i,'').slice(0,22));
+    charts.files=new Chart(document.getElementById('chart-files'),{
+      type:'bar',
+      data:{labels:shortNames,datasets:[
+        {label:'Handled',data:perFile.map(f=>f.ans),backgroundColor:'rgba(0,212,255,.7)',borderColor:'#00d4ff',borderWidth:1,borderRadius:4,maxBarThickness:42},
+        {label:'Abandoned',data:perFile.map(f=>f.no),backgroundColor:'rgba(255,59,92,.7)',borderColor:'#ff3b5c',borderWidth:1,borderRadius:4,maxBarThickness:42},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        layout:{padding:{top:22}},
+        plugins:{legend:{labels:{color:'#6b7394',font:{size:11},usePointStyle:true}}},
+        scales:{x:{grid:{display:false},ticks:{color:'#aab',font:{size:11}}},
+                y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#6b7394',font:{size:10}}}}}
+    });
+  }
+
+}
+
+// ═══════════════════════════════
+//  HELPERS
+// ═══════════════════════════════
+function fmtDur(s){
+  s=Math.round(Math.max(s,0));
+  if(s<60) return s+'s';
+  const m=Math.floor(s/60), sc=s%60;
+  if(m<60) return m+'m '+(sc>0?sc+'s':'');
+  const h=Math.floor(m/60), mn=m%60;
+  return h+'h '+(mn>0?mn+'m':'');
+}
+function fmtDate(d){return d?d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):''}
+function fmtHour(h){return String(h).padStart(2,'0')+':00'}
+function peakHourInfo(bh,mode='total'){
+  let mx=-1, idx=0;
+  for(let i=0; i<bh.length; i++){
+    const answered = bh[i].ans||0;
+    const abandoned = bh[i].no||0;
+    const calls = mode==='answered' ? answered : mode==='abandoned' ? abandoned : answered + abandoned;
+    if(calls > mx){
+      mx = calls;
+      idx = i;
+    }
+  }
+  return {hour:idx,calls:Math.max(mx,0)};
+}
+function peakHour(bh){return peakHourInfo(bh,'total').hour}
+function truncate(s,n){s=String(s);return s.length>n?s.slice(0,n)+'…':s}
+
+function dispositionColor(label,index){
+  const s=normText(label);
+  if (/(^|\b)(answered|answer|connected|complete|completed|completecaller|completeagent|success|successful)(\b|$)/.test(s)) return '#00d4ff';
+  if (/(^|\b)(transfer|transferred)(\b|$)/.test(s)) return '#00c896';
+  if (/(^|\b)(no\s*answer|unanswered|not\s*answered|missed|abandon(?:ed)?)(\b|$)/.test(s)) return '#7c5cfc';
+  if (/(^|\b)(failed|failure|congestion|timeout|declined|rejected|cancel(?:led)?)(\b|$)/.test(s)) return '#ff3b5c';
+  if (/(^|\b)(busy)(\b|$)/.test(s)) return '#ff6b35';
+  const palette=['#00c896','#ffd166','#9bdeac','#a7adcf','#4cc9f0','#f72585'];
+  return palette[index%palette.length];
+}
+
+function renderCountLegend(id,items){
+  const target=document.getElementById(id);
+  if(!target) return;
+  const total=items.reduce((sum,item)=>sum+item.value,0);
+  target.innerHTML=items.map(item=>{
+    const pct=total?item.value/total*100:0;
+    return `<div class="count-row">
+      <span class="count-swatch" style="background:${item.color}"></span>
+      <span class="count-label">${esc(item.label)}</span>
+      <span class="count-value">${item.value.toLocaleString()}</span>
+      <span class="count-percent">${pct.toFixed(1)}% of ${total.toLocaleString()}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderQueueBreakdown(id,items,totalCalls){
+  const target=document.getElementById(id);
+  if(!target) return;
+  const sorted=items
+    .filter(item=>item.total>0)
+    .sort((a,b)=>b.total-a.total||String(a.label).localeCompare(String(b.label)));
+  if(!sorted.length){
+    target.innerHTML='<div class="empty-note">No queue records found</div>';
+    return;
+  }
+  const max=Math.max(...sorted.map(item=>item.total),1);
+  target.innerHTML=sorted.map(item=>{
+    const totalPct=totalCalls?item.total/totalCalls*100:0;
+    const totalWidth=Math.max(item.total/max*100,2);
+    const handledPct=item.total?item.handled/item.total*100:0;
+    const abandonedPct=item.total?item.abandoned/item.total*100:0;
+    return `<div class="rank-row">
+      <div class="rank-top">
+        <span class="rank-name" title="${esc(item.label)}">${esc(item.label)}</span>
+        <span class="rank-value">${item.total.toLocaleString()}</span>
+      </div>
+      <div class="rank-track">
+        <div class="rank-stack" style="width:${totalWidth.toFixed(1)}%">
+          <span class="rank-segment" style="width:${handledPct.toFixed(1)}%;background:#00d4ff"></span>
+          <span class="rank-segment" style="width:${abandonedPct.toFixed(1)}%;background:#ff3b5c"></span>
+        </div>
+      </div>
+      <div class="rank-breakdown">
+        <span class="rank-breakdown-item"><span class="rank-breakdown-swatch" style="background:#00d4ff"></span>Handled ${item.handled.toLocaleString()}</span>
+        <span class="rank-breakdown-item"><span class="rank-breakdown-swatch" style="background:#ff3b5c"></span>Abandoned ${item.abandoned.toLocaleString()}</span>
+      </div>
+      <div class="rank-note">${totalPct.toFixed(1)}% of ${totalCalls.toLocaleString()} total queue calls</div>
+    </div>`;
+  }).join('');
+}
+
+function renderRankBreakdown(id,items,total,color){
+  const target=document.getElementById(id);
+  if(!target) return;
+  const sorted=items
+    .filter(item=>item.value>0)
+    .sort((a,b)=>b.value-a.value||String(a.label).localeCompare(String(b.label)));
+  if(!sorted.length){
+    target.innerHTML='<div class="empty-note">No records found</div>';
+    return;
+  }
+  const max=Math.max(...sorted.map(item=>item.value),1);
+  target.innerHTML=sorted.map(item=>{
+    const pct=total?item.value/total*100:0;
+    const width=Math.max(item.value/max*100,2);
+    return `<div class="rank-row">
+      <div class="rank-top">
+        <span class="rank-name" title="${esc(item.label)}">${esc(item.label)}</span>
+        <span class="rank-value">${item.value.toLocaleString()}</span>
+      </div>
+      <div class="rank-track"><div class="rank-fill" style="width:${width.toFixed(1)}%;background:${color}"></div></div>
+      <div class="rank-note">${pct.toFixed(1)}% of ${total.toLocaleString()}</div>
+    </div>`;
+  }).join('');
+}
+
+function buildAlerts(handleRate,queueStats,byHour,reasons,total,holdTimes){
+  const a=[];
+  if(handleRate<70) a.push({type:'danger',title:'Critical: High queue abandonment',body:` — Only ${handleRate.toFixed(1)}% of queue calls were handled. Target ≥85%.`});
+  else if(handleRate<85) a.push({type:'warn',title:'Warning: Queue handle rate below target',body:` — ${handleRate.toFixed(1)}% handled. Target ≥85%.`});
+  // Check problem queues: at least 10 calls and <40% handled
+  const ce=Object.entries(queueStats).filter(([,s])=>s.total>=10&&s.total>0&&(s.ans/s.total)<0.4);
+  if(ce.length) a.push({type:'danger',title:`${ce.length} queue(s) below 40% handled`,body:': '+ce.slice(0,5).map(([e])=>e).join(', ')+(ce.length>5?'…':'')});
+  // Check peak hour abandonment with safety checks
+  const ph=peakHour(byHour),pl=byHour[ph];
+  const totalAtPeak = (pl.ans||0) + (pl.no||0);
+  const pf = totalAtPeak > 0 ? (pl.no||0) / totalAtPeak : 0;
+  if(totalAtPeak > 0 && pf>0.4) a.push({type:'warn',title:`Peak hour ${ph}:00 has ${(pf*100).toFixed(0)}% abandonment`,body:` — ${totalAtPeak} queue calls, ${pl.no} abandoned.`});
+  // Check average hold time  
+  const avgHold=holdTimes.length>0?holdTimes.reduce((x,y)=>x+y,0)/holdTimes.length:0;
+  if(avgHold>60) a.push({type:'warn',title:'Average hold time exceeds 60 seconds',body:` — Current average hold is ${fmtDur(avgHold)}.`});
+  // Check for specific failure reasons
+  const dk=Object.keys(reasons);
+  if(dk.some(k=>/exitwithtimeout|timeout/i.test(k))) a.push({type:'warn',title:'Timeout queue exits detected',body:' — Review queue timeout and overflow routing.'});
+  if(dk.some(k=>/abandon/i.test(k))) a.push({type:'warn',title:'Abandoned queue calls detected',body:' — Review staffing and peak-hour coverage.'});
+  if(!a.length) a.push({type:'info',title:'No critical alerts',body:' — Queue performance is within the configured thresholds.'});
+  return a;
+}
+
+function exportFileName(ext){
+  const stamp=new Date().toISOString().slice(0,10);
+  return `queue-call-log-report-${stamp}.${ext}`;
+}
+
+function setExportBusy(busy){
+  document.querySelectorAll('.btn-export').forEach(btn=>btn.disabled=busy);
+}
+
+function downloadBlob(blob,fileName){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function replaceExportCanvases(root){
+  root.querySelectorAll('canvas').forEach(canvas=>{
+    const original=canvas.id?document.getElementById(canvas.id):null;
+    if(!original) return;
+    try{
+      const img=document.createElement('img');
+      img.src=original.toDataURL('image/png');
+      img.alt=canvas.id.replace(/^chart-/,'Chart: ');
+      img.style.width='100%';
+      img.style.height='100%';
+      img.style.objectFit='contain';
+      canvas.replaceWith(img);
+    }catch(_){}
+  });
+}
+
+function buildExportNode(){
+  Object.values(charts).forEach(c=>{try{c.update('none')}catch(_){}});
+  const report=document.createElement('div');
+  report.className='export-report';
+  const heading=document.createElement('div');
+  heading.className='export-heading';
+  heading.innerHTML=`
+    <div class="brand">QUEUE // Analytics</div>
+    <div class="dash-meta">${esc(document.getElementById('dash-meta').textContent||'')}</div>
+    <div class="export-generated">Generated ${new Date().toLocaleString()}</div>
+  `;
+  const body=document.querySelector('.dash-body').cloneNode(true);
+  report.appendChild(heading);
+  report.appendChild(body);
+  replaceExportCanvases(report);
+  return report;
+}
+
+function exportWord(){
+  try{
+    setExportBusy(true);
+    const report=buildExportNode();
+    const styles=document.querySelector('style').textContent+`
+      body{margin:0;background:#0d0f14;color:#e8eaf2;}
+      .export-report{padding:24px;}
+      .dash-body{padding:0;max-width:1180px;margin:0 auto;}
+      .dash-actions,.btn-export,.btn-back,footer{display:none!important;}
+      .chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px;}
+      .chart-full{grid-column:1/-1;}
+      .chart-card,.kpi{break-inside:avoid;}
+      img{max-width:100%;}
+    `;
+    const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Queue Call Log Analytics Report</title><style>${styles}</style></head><body>${report.outerHTML}</body></html>`;
+    downloadBlob(new Blob(['\ufeff',html],{type:'application/msword'}),exportFileName('doc'));
+  }catch(err){
+    alert('Word export failed: '+err.message);
+  }finally{
+    setExportBusy(false);
+  }
+}
+
+async function captureElement(el, scale){
+  scale = scale || 2;
+  // Temporarily make visible if hidden
+  const wasHidden = el.style.display === 'none';
+  if(wasHidden){ el.style.display = 'block'; }
+  // Replace canvases with images inside a clone
+  const clone = el.cloneNode(true);
+  clone.style.cssText = `
+    position:fixed;left:-9999px;top:0;
+    width:${el.offsetWidth||900}px;
+    background:#13161e;border-radius:12px;padding:1.4rem;
+    font-family:'IBM Plex Sans',sans-serif;color:#e8eaf2;
+  `;
+  // Copy canvas contents into the clone
+  const origCanvases = el.querySelectorAll('canvas');
+  const cloneCanvases = clone.querySelectorAll('canvas');
+  origCanvases.forEach((orig, i) => {
+    try{
+      const img = document.createElement('img');
+      img.src = orig.toDataURL('image/png');
+      img.style.cssText = 'width:100%;height:100%;display:block;';
+      cloneCanvases[i].replaceWith(img);
+    }catch(_){}
+  });
+  document.body.appendChild(clone);
+  await new Promise(r => setTimeout(r, 80));
+  const canvas = await html2canvas(clone, {
+    scale: scale,
+    backgroundColor: '#13161e',
+    useCORS: true,
+    allowTaint: true,
+    logging: false,
+    windowWidth: clone.scrollWidth,
+    windowHeight: clone.scrollHeight
+  });
+  clone.remove();
+  if(wasHidden){ el.style.display = 'none'; }
+  return canvas;
+}
+
+async function exportPDF(){
+  if(!window.html2canvas || !window.jspdf){
+    alert('PDF export libraries are still loading. Please try again in a moment.');
+    return;
+  }
+  try{
+    setExportBusy(true);
+    const {jsPDF} = window.jspdf;
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 8;
+    const usableW = pageW - margin * 2;
+    const usableH = pageH - margin * 2;
+
+    // Collect all visible chart cards and KPI row
+    const sections = [
+      document.getElementById('kpi-row'),
+      ...document.querySelectorAll('.dash-body .chart-card'),
+      document.getElementById('source-alerts-bottom')
+    ].filter(el => el && el.offsetParent !== null && el.offsetHeight > 0);
+
+    let firstPage = true;
+    let yOffset = margin;
+
+    // Header block
+    const headerEl = document.createElement('div');
+    headerEl.style.cssText = 'position:fixed;left:-9999px;top:0;width:900px;background:#0d0f14;padding:16px 20px;font-family:IBM Plex Mono,monospace;color:#e8eaf2;border-bottom:1px solid #252a38;';
+    headerEl.innerHTML = `<div style="color:#00d4ff;font-size:13px;letter-spacing:.15em">QUEUE // Analytics</div>
+      <div style="color:#6b7394;font-size:11px;margin-top:4px">${esc(document.getElementById('dash-meta').textContent||'')}</div>
+      <div style="color:#6b7394;font-size:11px;">Generated ${new Date().toLocaleString()}</div>`;
+    document.body.appendChild(headerEl);
+    await new Promise(r => setTimeout(r, 60));
+    const hCanvas = await html2canvas(headerEl, { scale:2, backgroundColor:'#0d0f14', logging:false });
+    headerEl.remove();
+    const hImgData = hCanvas.toDataURL('image/png');
+    const hH = hCanvas.height * usableW / hCanvas.width;
+    pdf.addImage(hImgData, 'PNG', margin, margin, usableW, hH);
+    yOffset = margin + hH + 6;
+
+    for(const section of sections){
+      const canvas = await captureElement(section, 2);
+      const imgData = canvas.toDataURL('image/png');
+      const imgH = canvas.height * usableW / canvas.width;
+
+      // If it fits on current page
+      if(yOffset + imgH <= pageH - margin){
+        pdf.addImage(imgData, 'PNG', margin, yOffset, usableW, imgH);
+        yOffset += imgH + 6;
+      } else {
+        // If single section is taller than a full page, scale it down to fit
+        if(imgH > usableH){
+          pdf.addPage();
+          const scaledH = usableH;
+          const scaledW = canvas.width * scaledH / canvas.height;
+          const xOff = margin + (usableW - Math.min(scaledW, usableW)) / 2;
+          pdf.addImage(imgData, 'PNG', xOff, margin, Math.min(scaledW, usableW), scaledH);
+          yOffset = margin + scaledH + 6;
+        } else {
+          pdf.addPage();
+          pdf.addImage(imgData, 'PNG', margin, margin, usableW, imgH);
+          yOffset = margin + imgH + 6;
+        }
+      }
+    }
+
+    pdf.save(exportFileName('pdf'));
+  } catch(err){
+    alert('PDF export failed: ' + err.message);
+    console.error(err);
+  } finally{
+    setExportBusy(false);
+  }
+}
+
+async function exportAllPNG(){
+  if(!window.html2canvas){
+    alert('Export library is still loading. Please try again in a moment.');
+    return;
+  }
+  try{
+    setExportBusy(true);
+    const sections = [
+      ...document.querySelectorAll('.dash-body .chart-card'),
+      document.getElementById('source-alerts-bottom')
+    ].filter(el => el && el.offsetParent !== null && el.offsetHeight > 0);
+    const visible = sections;
+    const stamp = new Date().toISOString().slice(0,10);
+
+    for(let i = 0; i < visible.length; i++){
+      const el = visible[i];
+      const titleEl = el.querySelector('h2');
+      const rawTitle = titleEl ? titleEl.textContent.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g,'').toLowerCase() : `chart-${i+1}`;
+      const canvas = await captureElement(el, 2);
+      const link = document.createElement('a');
+      link.download = `queue-${rawTitle}-${stamp}.png`;
+      link.href = canvas.toDataURL('image/png');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      await new Promise(r => setTimeout(r, 200)); // small delay between downloads
+    }
+  } catch(err){
+    alert('PNG export failed: ' + err.message);
+    console.error(err);
+  } finally{
+    setExportBusy(false);
+  }
+}
+
+function goBack(){
+  document.getElementById('dashboard').style.display='none';
+  document.getElementById('upload-screen').style.display='flex';
+  document.getElementById('col-mapper').style.display='none';
+  document.getElementById('file-queue').style.display='none';
+  document.getElementById('file-compare-card').style.display='none';
+  document.getElementById('ytd-page').style.display='none';
+  document.getElementById('file-input').value='';
+  fileQueue=[]; colMap={};
+}
+
+// ═══════════════════════════════
+//  YTD METRICS
+// ═══════════════════════════════
+let ytdReportData = null;
+const ytdCharts = {};
+
+function showYTDMetrics(){
+  document.getElementById('dashboard').style.display='none';
+  document.getElementById('ytd-page').style.display='block';
+}
+
+function closeYTDMetrics(){
+  document.getElementById('ytd-page').style.display='none';
+  document.getElementById('dashboard').style.display='block';
+}
+
+function loadYTDReport(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try{
+      ytdReportData = JSON.parse(e.target.result);
+      renderYTDMetrics();
+      document.getElementById('ytd-upload').style.display='none';
+    }catch(err){
+      alert('Error parsing JSON: '+err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function secondsToHMS(seconds){
+  if(!seconds || seconds<0) return '00:00:00';
+  const h = Math.floor(seconds/3600);
+  const m = Math.floor((seconds%3600)/60);
+  const s = Math.floor(seconds%60);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function renderYTDMetrics(){
+  if(!ytdReportData) return;
+  
+  document.getElementById('ytd-meta').innerHTML = `
+    <strong>${ytdReportData.file_analyzed}</strong> • 
+    ${ytdReportData.date_range.total_days} days • 
+    ${ytdReportData.total_records.toLocaleString()} records • 
+    ${ytdReportData.queues||'N/A'} queue(s)
+  `;
+  
+  const m = ytdReportData.metrics;
+  
+  // Show all metrics
+  document.getElementById('ytd-metric1').style.display='block';
+  document.getElementById('ytd-metric2').style.display='block';
+  document.getElementById('ytd-metric3').style.display='block';
+  document.getElementById('ytd-metric4').style.display='block';
+  document.getElementById('ytd-metric5').style.display='block';
+  document.getElementById('ytd-metric6').style.display='block';
+  document.getElementById('ytd-metric7').style.display='block';
+  document.getElementById('ytd-metric8').style.display='block';
+  
+  renderM1(m.metric_1_avg_calls_per_day);
+  renderM2(m.metric_2_max_calls_per_month);
+  renderM3(m.metric_3_avg_daily_abandoned);
+  renderM4(m.metric_4_avg_hold_time);
+  renderM5(m.metric_5_avg_talk_time);
+  renderM6(m.metric_6_avg_daily_abandoned_per_shift);
+  renderM7(m.metric_7_peak_hours_manpower);
+  renderM8(m.metric_8_manpower_logged_in);
+}
+
+function renderM1(data){
+  const stats = `
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Avg Daily Calls</div>
+      <div style="font-size:2rem;color:var(--accent);font-weight:600;font-family:var(--mono)">${Math.round(data.average)}</div>
+    </div>
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Min / Max</div>
+      <div style="font-size:1.6rem;color:var(--accent);font-weight:600;font-family:var(--mono)">${data.min} / ${data.max}</div>
+    </div>
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Total Days</div>
+      <div style="font-size:2rem;color:var(--accent);font-weight:600;font-family:var(--mono)">${data.total_days}</div>
+    </div>
+  `;
+  document.getElementById('ytd-m1-stats').innerHTML = stats;
+  
+  const ctx = document.getElementById('ytd-chart1').getContext('2d');
+  if(ytdCharts.m1) ytdCharts.m1.destroy();
+  ytdCharts.m1 = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels:Object.keys(data.by_month),
+      datasets:[{
+        label:'Avg Calls/Day',
+        data:Object.values(data.by_month).map(m=>m.average_per_day),
+        borderColor:'#00d4ff',
+        backgroundColor:'rgba(0,212,255,.1)',
+        fill:true,
+        tension:0.4,
+        pointRadius:5,
+        pointBackgroundColor:'#00d4ff'
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7394'}},x:{grid:{display:false},ticks:{color:'#6b7394'}}}
+    }
+  });
+  
+  let html='<tr><th>Month</th><th>Avg/Day</th><th>Total</th><th>Days</th></tr>';
+  Object.entries(data.by_month).forEach(([month,d])=>{
+    html+=`<tr><td>${month}</td><td style="color:var(--accent);font-weight:600">${d.average_per_day}</td><td>${d.total_calls.toLocaleString()}</td><td>${d.days}</td></tr>`;
+  });
+  document.getElementById('ytd-table1').innerHTML=html;
+}
+
+function renderM2(data){
+  const ctx=document.getElementById('ytd-chart2').getContext('2d');
+  if(ytdCharts.m2) ytdCharts.m2.destroy();
+  ytdCharts.m2=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:Object.keys(data),
+      datasets:[{label:'Max Daily Calls',data:Object.values(data).map(d=>d.max_calls_in_day),backgroundColor:'#7c5cfc',borderRadius:6}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7394'}},x:{grid:{display:false},ticks:{color:'#6b7394'}}}}
+  });
+  
+  let html='<tr><th>Month</th><th>Max Calls</th><th>Date</th><th>Total</th></tr>';
+  Object.entries(data).forEach(([month,d])=>{
+    html+=`<tr><td>${month}</td><td style="color:var(--accent);font-weight:600">${d.max_calls_in_day}</td><td>${d.date_of_max}</td><td>${d.total_calls.toLocaleString()}</td></tr>`;
+  });
+  document.getElementById('ytd-table2').innerHTML=html;
+}
+
+function renderM3(data){
+  const isAlert = data.abandoned_rate_pct > 5;
+  document.getElementById('ytd-m3-alert').innerHTML=`
+    <div style="padding:12px 16px;border-radius:8px;border-left:4px solid ${isAlert?'#ff3b5c':'#00c896'};background:${isAlert?'rgba(255,59,92,.1)':'rgba(0,200,150,.1)'};color:${isAlert?'#ff3b5c':'#00c896'};font-size:13px">
+      ${isAlert?'⚠️':'✓'} Abandonment rate is ${isAlert?data.abandoned_rate_pct-5+' % ABOVE':'within'} standard
+    </div>
+  `;
+  
+  const stats=`
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Total Abandoned</div>
+      <div style="font-size:1.8rem;color:var(--danger);font-weight:600;font-family:var(--mono)">${data.total_abandoned.toLocaleString()}</div>
+    </div>
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Abandonment Rate</div>
+      <div style="font-size:2rem;color:var(--danger);font-weight:600;font-family:var(--mono)">${data.abandoned_rate_pct.toFixed(1)}%</div>
+    </div>
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Avg Daily</div>
+      <div style="font-size:2rem;color:var(--accent);font-weight:600;font-family:var(--mono)">${Math.round(data.avg_daily_abandoned)}</div>
+    </div>
+  `;
+  document.getElementById('ytd-m3-stats').innerHTML=stats;
+  
+  const ctx=document.getElementById('ytd-chart3').getContext('2d');
+  if(ytdCharts.m3) ytdCharts.m3.destroy();
+  ytdCharts.m3=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:Object.keys(data.by_month),
+      datasets:[{label:'Abandoned %',data:Object.values(data.by_month).map(m=>m.rate_pct),backgroundColor:Object.values(data.by_month).map(m=>m.rate_pct>5?'#ff3b5c':'#00c896'),borderRadius:6}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7394'}},x:{grid:{display:false},ticks:{color:'#6b7394'}}}}
+  });
+  
+  let html='<tr><th>Month</th><th>Abandoned</th><th>Total</th><th>Rate %</th></tr>';
+  Object.entries(data.by_month).forEach(([month,m])=>{
+    html+=`<tr><td>${month}</td><td style="color:var(--danger);font-weight:600">${m.abandoned_calls}</td><td>${m.total_calls}</td><td>${m.rate_pct.toFixed(1)}%</td></tr>`;
+  });
+  document.getElementById('ytd-table3').innerHTML=html;
+}
+
+function renderM4(data){
+  const stats=`
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Avg Hold Time</div>
+      <div style="font-size:1.8rem;color:var(--accent);font-weight:600;font-family:var(--mono)">${data.avg_hold_time_hms}</div>
+    </div>
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Max Hold Time</div>
+      <div style="font-size:1.6rem;color:var(--warn);font-weight:600;font-family:var(--mono)">${data.max_hold_time_hms}</div>
+    </div>
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Median</div>
+      <div style="font-size:1.6rem;color:var(--accent);font-weight:600;font-family:var(--mono)">${data.median_hold_time_hms}</div>
+    </div>
+  `;
+  document.getElementById('ytd-m4-stats').innerHTML=stats;
+  
+  const ctx=document.getElementById('ytd-chart4').getContext('2d');
+  if(ytdCharts.m4) ytdCharts.m4.destroy();
+  const hours=Object.keys(data.by_hour);
+  ytdCharts.m4=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:hours,
+      datasets:[{label:'Hold Time (seconds)',data:Object.values(data.by_hour).map(h=>h.avg_seconds),borderColor:'#ff6b35',backgroundColor:'rgba(255,107,53,.1)',fill:true,tension:0.3}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7394'}},x:{grid:{display:false},ticks:{color:'#6b7394'}}}}
+  });
+}
+
+function renderM5(data){
+  const stats=`
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Avg Talk Time</div>
+      <div style="font-size:1.8rem;color:var(--accent);font-weight:600;font-family:var(--mono)">${data.avg_hms}</div>
+    </div>
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Median</div>
+      <div style="font-size:1.6rem;color:var(--accent);font-weight:600;font-family:var(--mono)">${data.median_hms}</div>
+    </div>
+    <div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">Max</div>
+      <div style="font-size:1.6rem;color:var(--warn);font-weight:600;font-family:var(--mono)">${data.max_hms}</div>
+    </div>
+  `;
+  document.getElementById('ytd-m5-stats').innerHTML=stats;
+  
+  const ctx=document.getElementById('ytd-chart5').getContext('2d');
+  if(ytdCharts.m5) ytdCharts.m5.destroy();
+  const hours=Object.keys(data.by_hour);
+  ytdCharts.m5=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:hours,
+      datasets:[{label:'Talk Time (seconds)',data:Object.values(data.by_hour).map(h=>h.avg_seconds),borderColor:'#00c896',backgroundColor:'rgba(0,200,150,.1)',fill:true,tension:0.3}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7394'}},x:{grid:{display:false},ticks:{color:'#6b7394'}}}}
+  });
+}
+
+function renderM6(data){
+  const ctx=document.getElementById('ytd-chart6').getContext('2d');
+  if(ytdCharts.m6) ytdCharts.m6.destroy();
+  ytdCharts.m6=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:Object.keys(data),
+      datasets:[{label:'Avg Daily Abandoned',data:Object.values(data).map(s=>s.avg_daily_abandoned),backgroundColor:['#ff6b35','#7c5cfc','#00d4ff'],borderRadius:6}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7394'}},x:{grid:{display:false},ticks:{color:'#6b7394'}}}}
+  });
+  
+  let html='<tr><th>Shift</th><th>Abandoned</th><th>Total</th><th>Rate %</th><th>Avg/Day</th></tr>';
+  Object.entries(data).forEach(([shift,s])=>{
+    html+=`<tr><td><strong>${shift}</strong></td><td style="color:var(--danger);font-weight:600">${s.total_abandoned}</td><td>${s.total_calls}</td><td>${s.abandoned_rate_pct.toFixed(1)}%</td><td>${s.avg_daily_abandoned.toFixed(0)}</td></tr>`;
+  });
+  document.getElementById('ytd-table6').innerHTML=html;
+}
+
+function renderM7(data){
+  const hours=Object.keys(data.hourly_breakdown);
+  const calls=Object.values(data.hourly_breakdown).map(h=>h.calls);
+  const staff=Object.values(data.hourly_breakdown).map(h=>h.estimated_staffing_needed);
+  
+  const ctx=document.getElementById('ytd-chart7').getContext('2d');
+  if(ytdCharts.m7) ytdCharts.m7.destroy();
+  ytdCharts.m7=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:hours,
+      datasets:[
+        {label:'Calls',data:calls,backgroundColor:'rgba(0,212,255,.6)',borderRadius:6,yAxisID:'y'},
+        {label:'Est. Staff',data:staff,backgroundColor:'rgba(124,92,252,.6)',borderRadius:6,yAxisID:'y1'}
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7394'}},y1:{position:'right',grid:{display:false},ticks:{color:'#6b7394'}},x:{grid:{display:false},ticks:{color:'#6b7394'}}}}
+  });
+  
+  let html='<tr><th>Hour</th><th>Calls</th><th>Agents</th><th>Peak?</th><th>Est. Staff</th></tr>';
+  Object.entries(data.hourly_breakdown).forEach(([hour,h])=>{
+    html+=`<tr><td>${hour}</td><td style="color:var(--accent);font-weight:600">${h.calls.toLocaleString()}</td><td>${h.unique_agents}</td><td>${h.is_peak_hour}</td><td>${h.estimated_staffing_needed}</td></tr>`;
+  });
+  document.getElementById('ytd-table7').innerHTML=html;
+}
+
+function renderM8(data){
+  const shifts=Object.keys(data.by_shift);
+  const agents=Object.values(data.by_shift).map(s=>s.unique_agents_logged);
+  
+  let stats='';
+  Object.entries(data.by_shift).forEach(([shift,s])=>{
+    stats+=`<div class="kpi" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:0.5rem">${shift.split('(')[0].trim()}</div>
+      <div style="font-size:2rem;color:var(--accent);font-weight:600;font-family:var(--mono)">${s.unique_agents_logged}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:0.5rem">${s.total_calls.toLocaleString()} calls</div>
+    </div>`;
+  });
+  document.getElementById('ytd-m8-stats').innerHTML=stats;
+  
+  const ctx=document.getElementById('ytd-chart8').getContext('2d');
+  if(ytdCharts.m8) ytdCharts.m8.destroy();
+  ytdCharts.m8=new Chart(ctx,{
+    type:'doughnut',
+    data:{
+      labels:shifts,
+      datasets:[{data:agents,backgroundColor:['#ff6b35','#7c5cfc','#00d4ff'],borderColor:'#13161e',borderWidth:2}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e8eaf2'}}}}
+  });
+  
+  let html='<tr><th>Agent</th><th>Calls</th><th>Login Hrs</th><th>Calls/Hr</th></tr>';
+  Object.entries(data.by_agent).slice(0,10).forEach(([ext,a])=>{
+    html+=`<tr><td style="color:var(--accent);font-weight:600">${ext}</td><td>${a.calls.toLocaleString()}</td><td>${a.logged_duration_hours.toFixed(1)}</td><td>${a.calls_per_hour.toFixed(2)}</td></tr>`;
+  });
+  document.getElementById('ytd-table8').innerHTML=html;
+}
+
+</script>
+</body>
+</html>
